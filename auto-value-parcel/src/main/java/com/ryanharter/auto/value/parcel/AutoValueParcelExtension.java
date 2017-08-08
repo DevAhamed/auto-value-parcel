@@ -330,7 +330,7 @@ public final class AutoValueParcelExtension extends AutoValueExtension {
     for (int i = 0, n = properties.size(); i < n; i++) {
       Property property = properties.get(i);
       if (property.ignored()) {
-        if (!property.type.isPrimitive()) {
+        if (property.type.isPrimitive()) {
           ctorCall.add(getDefaultPrimitiveValue(property.type));
         } else {
           ctorCall.add("null");
