@@ -85,6 +85,10 @@ public final class AutoValueParcelExtension extends AutoValueExtension {
       return annotations.contains("Nullable");
     }
 
+    public boolean ignored() {
+      return annotations.contains("IgnoreParcel");
+    }
+
     private ImmutableSet<String> buildAnnotations(ExecutableElement element) {
       ImmutableSet.Builder<String> builder = ImmutableSet.builder();
       for (AnnotationMirror annotation : element.getAnnotationMirrors()) {
@@ -257,6 +261,16 @@ public final class AutoValueParcelExtension extends AutoValueExtension {
       if (property.typeAdapter != null) {
         continue;
       }
+      if (property.ignored()) {
+        if (!property.nullable() && !property.type.isPrimitive()) {
+          env.getMessager()
+              .printMessage(Diagnostic.Kind.ERROR,
+                  "IgnoreParcel properties should be nullable. Add @Nullable annotation.",
+                  property.element);
+          throw new AutoValueParcelException();
+        }
+        continue;
+      }
       TypeMirror type = property.element.getReturnType();
       if (type.getKind() == TypeKind.ARRAY) {
         ArrayType aType = (ArrayType) type;
@@ -315,7 +329,13 @@ public final class AutoValueParcelExtension extends AutoValueExtension {
     boolean requiresSuppressWarnings = false;
     for (int i = 0, n = properties.size(); i < n; i++) {
       Property property = properties.get(i);
-      if (property.typeAdapter != null && typeAdapters.containsKey(property.typeAdapter)) {
+      if (property.ignored()) {
+        if (!property.type.isPrimitive()) {
+          ctorCall.add(getDefaultPrimitiveValue(property.type));
+        } else {
+          ctorCall.add("null");
+        }
+      } else if (property.typeAdapter != null && typeAdapters.containsKey(property.typeAdapter)) {
         Parcelables.readValueWithTypeAdapter(ctorCall, property,
             typeAdapters.get(property.typeAdapter));
       } else {
@@ -377,7 +397,7 @@ public final class AutoValueParcelExtension extends AutoValueExtension {
       if (p.typeAdapter != null && typeAdapters.containsKey(p.typeAdapter)) {
         FieldSpec typeAdapter = typeAdapters.get(p.typeAdapter);
         builder.addCode(Parcelables.writeValueWithTypeAdapter(typeAdapter, p, dest));
-      } else {
+      } else if (!p.ignored()) {
         builder.addCode(Parcelables.writeValue(typeUtils, p, dest, flags));
       }
     }
@@ -415,5 +435,18 @@ public final class AutoValueParcelExtension extends AutoValueExtension {
         .returns(int.class)
         .addStatement("return 0")
         .build();
+  }
+
+  private String getDefaultPrimitiveValue(TypeName typeName) {
+    if (typeName.equals(TypeName.BYTE)) return "0";
+    if (typeName.equals(TypeName.SHORT)) return "0";
+    if (typeName.equals(TypeName.INT)) return "0";
+    if (typeName.equals(TypeName.LONG)) return "0L";
+    if (typeName.equals(TypeName.CHAR)) return "'\u0000'";
+    if (typeName.equals(TypeName.FLOAT)) return "0.0F";
+    if (typeName.equals(TypeName.DOUBLE)) return "0.0";
+    if (typeName.equals(TypeName.BOOLEAN)) return "false";
+    if (typeName.equals(TypeName.VOID)) return "void";
+    throw new IllegalArgumentException("Not primitive type : " + typeName);
   }
 }
